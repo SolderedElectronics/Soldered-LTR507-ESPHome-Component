@@ -1,31 +1,21 @@
-# Soldered NAZIV PROIZVODA ESPHome Component
+# Soldered LTR-507 ESPHome Component
 
-| ![Product name](https://upload.wikimedia.org/wikipedia/commons/8/8f/Example_image.svg) |
-| :------------------------------------------------------------------------------------: |
-|                      [NAZIV PROIZVODA](https://www.solde.red/SKU)                      |
+| ![Digital Light & Proximity Sensor LTR-507 Breakout](https://soldered.com/cdn/shop/files/333063_featured-photo_fda38e.jpg?v=1785145837&width=3840) |
+| :----------------------------------------------------------------------------------------------------------------------------------------------: |
+|                                   [Digital Light & Proximity Sensor LTR-507 Breakout](https://www.solde.red/333063)                                   |
 
-OPIS PROIZVODA + LINK NA [Qwiic ecosystem](https://soldered.com/collections/qwiic-ecosystem).
+The LTR-507ALS-01 combines a digital ambient light sensor (ALS, 16-bit lux reading computed on-chip) and an
+infrared-reflection proximity sensor (PS) in one I2C breakout. The board is part of the
+[easyC / Qwiic ecosystem](https://soldered.com/collections/qwiic-ecosystem), so it connects with a single cable.
 
-External ESPHome component for NAZIV PROIZVODA.
+External ESPHome component for the Soldered Digital Light & Proximity Sensor LTR-507 breakout. It is a port of the
+[Soldered LTR-507 Arduino library](https://github.com/SolderedElectronics/Soldered-Digital-Light-Sensor-Arduino-Library)
+(register logic follows the [Soldered LTR507 ESP-IDF component](https://github.com/SolderedElectronics/Soldered-LTR507-ESP-IDF-Component))
+and publishes ambient light (lux) and proximity (raw counts) as ESPHome [sensors](https://esphome.io/components/sensor/).
 
-### Using the template
-
-Before publishing a new component make sure to replace:
-
-- `NAZIV PROIZVODA`, `OPIS PROIZVODA`, product image, and SKU link in this README
-- the `components/soldered_esphome_component_template/` directory name with the real component name
-- `soldered_esphome_component_template` namespace, `SolderedEsphomeComponentTemplate` class name, and `CODEOWNERS` in `__init__.py`, matching names in the `.h`/`.cpp` files and their `#include`
-- `CONFIG_SCHEMA` and `to_code()` in `__init__.py` with the real config options and codegen
-- the `TAG` string and `dump_config()` output in the `.cpp` file
-- `github://SolderedElectronics/<repo>` source path and the sample config in the "Usage" section below
-- `examples/basic.yaml` (rename/add examples as needed, keep `external_components.source.path` pointing at `../components`)
-- `@file`, `@brief`, `@author` Doxygen comments in the `.h`/`.cpp` files to describe the real API
-
-Also make sure to add more examples if the component supports multiple boards/modes (see `Soldered-Inkplate-ESPHome` for a repo with several board variants).
-
-Run `pip install clang-format==13.0.1 && find components -name "*.cpp" -o -name "*.h" | xargs clang-format -i` before committing to auto-format the component against ESPHome's own style (`.clang-format`, copied from the ESPHome core repo). CI runs the same check on every push/PR via `.github/workflows/format_check.yml` and fails on unformatted code. `.github/workflows/build.yml` compiles every YAML under `examples/` on every push/PR.
-
-**Remove this section of README after everything is done!**
+> **Proximity needs an external IR LED.** The LTR-507ALS-01 has no IR emitter in its package, so the proximity sensor
+> reads `0` unless an IR LED (e.g. [this one](https://www.solde.red/101922)) is connected: LED cathode (-) to the
+> breakout's **VLED** pin, LED anode (+) to **VCC**.
 
 ## Repository Contents
 
@@ -38,17 +28,60 @@ Reference this repo directly from your own ESPHome YAML (no need to clone it loc
 
 ```yaml
 external_components:
-  - source: github://SolderedElectronics/<repo>
-    components: [soldered_esphome_component_template]
+  - source: github://SolderedElectronics/Soldered-LTR507-ESPHome-Component
+    components: [soldered_ltr507]
 
-soldered_esphome_component_template:
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+
+sensor:
+  - platform: soldered_ltr507
+    update_interval: 5s
+    ambient_light:
+      name: "Ambient Light"
+    proximity:
+      name: "Proximity"
 ```
+
+On boot the component checks the chip's PART_ID / MANUFAC_ID registers, writes the configuration below and puts the
+ALS and/or PS block into active mode (only the blocks whose sensor is configured, so the IR LED is not pulsed when
+`proximity` is left out). The chip then measures continuously on its own; every `update_interval` the component reads
+the latest results. Ambient light is published only when the chip reports a fresh measurement. A saturated proximity
+ADC (object very close, or strong ambient IR such as direct sunlight) is logged as a warning.
 
 See [`examples/basic.yaml`](examples/basic.yaml) for a full working example.
 
+### Configuration variables
+
+- **ambient_light** (*Optional*): ambient light level in lux. All options from
+  [Sensor](https://esphome.io/components/sensor/#config-sensor).
+- **proximity** (*Optional*): raw 11-bit proximity reading, `0` - `2047`, higher means closer. **Requires an
+  external IR LED** (see the note at the top), otherwise it always reads `0`. All options from
+  [Sensor](https://esphome.io/components/sensor/#config-sensor).
+- **gain** (*Optional*): ALS dynamic range. `1X` (default, 1 lux/count, up to 64k lux) or `2X` (0.5 lux/count, up to
+  32k lux).
+- **integration_time** (*Optional*): ALS integration time / ADC resolution. One of `75ms` (default, 16-bit), `150ms`,
+  `300ms`, `600ms`, `1200ms` (20-bit). The chip's internal repeat rate is 500 ms, raised to 1 s / 2 s for the two
+  longest integration times, so `update_interval` faster than that just re-reads the same value.
+- **led_current** (*Optional*): IR LED peak current. One of `5mA`, `10mA`, `20mA`, `50mA` (default), `100mA`. Make
+  sure the LED you connect is rated for it.
+- **led_pulse_frequency** (*Optional*): IR LED pulse frequency. One of `30kHz` - `100kHz` in 10 kHz steps, default
+  `60kHz`.
+- **led_pulses** (*Optional*, int): number of IR LED pulses per proximity measurement, `1` - `255`. Defaults to `127`.
+- **address** (*Optional*, int): I2C address of the sensor. Defaults to `0x3A`.
+- **update_interval** (*Optional*, [Time](https://esphome.io/guides/configuration-types#config-time)): how often to
+  read the sensor. Defaults to `60s`.
+- **i2c_id** (*Optional*, [ID](https://esphome.io/guides/configuration-types#config-id)): I2C bus to use, if there is
+  more than one.
+
+At least one of `ambient_light` / `proximity` must be set.
+
 ### Hardware design
 
-You can find hardware design for this board in the _NAZIV PROIZVODA_ hardware repository.
+You can find hardware design for this board in the
+[_Digital light & proximity sensor LTR-507ALS breakout_](https://github.com/SolderedElectronics/Digital-light---proximity-sensor-LTR-507ALS-breakout-hardware-design)
+hardware repository.
 
 ### Documentation
 
